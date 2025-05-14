@@ -84,23 +84,6 @@ module Jira
         end
     end
 
-    module CCB
-        extend self
-        PROJECT_ID = 10021
-        BUG_ISSUE_TYPE = 10004
-    end
-
-    module RCKT
-        extend self
-        PROJECT_ID = 10020
-        EPIC_ISSUE_TYPE = 10000
-        STORY_ISSUE_TYPE = 10001
-        TASK_ISSUE_TYPE = 10002
-        SUB_TASK_ISSUE_TYPE = 10003
-        BUG_ISSUE_TYPE = 10004
-        BOARD_ID = 17
-    end
-
     module Sprints
         extend self
 
@@ -156,8 +139,6 @@ module Jira
 
         def create_multi(issues, parent, board_id)
             updates = []
-            sprint = Jira::Sprints.next(board_id)
-            sprint = Jira::Sprints.current(board_id) if sprint.nil?
             issues.each do |issue|
                 update = {
                     fields: {
@@ -201,6 +182,25 @@ module Jira
                 next if issue.nil?
                 # Jira.post("issue/#{issue['key']}/transitions", {transition: {id: 11}}.to_json)
             end
+        end
+
+        def create(epic, summary)
+            data = {
+                fields: {
+                  reporter: {id: Jira::AUSTIN_ACC_ID},
+                  assignee: {id: Jira::AUSTIN_ACC_ID},
+                  summary: summary,
+                  issuetype: {id: Jira::CC::TASK_ISSUE_TYPE},
+                  project: {id: Jira::CC::PROJECT_ID},
+                  parent: {key: epic}
+                },
+                transition: {
+                  id: 11
+                }
+            }
+            res = Jira.post("issue", data.to_json)
+            raise "Failed to create issue: #{res}" if res.nil? || res['errors']
+            res
         end
 
         def search(jql)
