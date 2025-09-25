@@ -184,13 +184,23 @@ module Jira
             end
         end
 
-        def create(epic, summary)
+        def create(epic, summary, type: :task)
+          type_id = case type
+                    when :task
+                      Jira::CC::TASK_ISSUE_TYPE
+                    when :story
+                      Jira::CC::STORY_ISSUE_TYPE
+                    when :bug
+                      Jira::CC::BUG_ISSUE_TYPE
+                    else
+                      error "Unknown issue type: #{type}. Must be one of :task, :story, :bug"
+                    end
             data = {
                 fields: {
                   reporter: {id: Jira::AUSTIN_ACC_ID},
                   assignee: {id: Jira::AUSTIN_ACC_ID},
                   summary: summary,
-                  issuetype: {id: Jira::CC::TASK_ISSUE_TYPE},
+                  issuetype: {id: type_id},
                   project: {id: Jira::CC::PROJECT_ID},
                   parent: {key: epic}
                 },
