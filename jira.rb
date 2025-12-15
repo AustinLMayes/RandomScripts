@@ -213,8 +213,8 @@ module Jira
             res
         end
 
-        def search(jql)
-            Jira.post("search", {jql: jql}.to_json)['issues']
+        def search(jql, fields: ["*all"])
+            Jira.post("search/jql", {jql: jql, fields: fields}.to_json)['issues']
         end
 
         def add_label(id, label)

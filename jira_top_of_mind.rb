@@ -7,7 +7,7 @@ require 'active_support/time'
 
 def gen_top_of_mind
     by_priority = {}
-    Jira::Issues.search("assignee in (currentUser()) AND statusCategory != Done AND status != Testing AND status != Approved AND sprint in openSprints()").each do |issue|
+    Jira::Issues.search("(assignee in (currentUser()) OR updatedDate < -30d) AND statusCategory != Done AND status != Testing AND project = CubeCraft").each do |issue|
         # Exclude epics
         if issue['fields']['issuetype']['name'] == 'Epic'
             info "#{issue['key']} (#{issue['fields']['summary']}) is an epic! Not adding to top of mind"
@@ -72,7 +72,7 @@ def gen_top_of_mind
 end
 
 def remove_old_top_of_mind(exlude: [])
-    Jira::Issues.search("assignee in (currentUser()) AND labels = 'top-of-mind'").each do |issue|
+    Jira::Issues.search("labels = 'top-of-mind'").each do |issue|
         next if exlude.include?(issue['key'])
         info "Removing label from #{issue['key']} (#{issue['fields']['summary']})"
         Jira::Issues.remove_label(issue['key'], 'top-of-mind')
