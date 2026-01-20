@@ -23,6 +23,7 @@ def determine_col_desc(col_name)
   return "Name of the map being selected" if col_name == "selected_division"
   return "Name of the rank being purchased or renewed" if col_name == "rank_name" || col_name == "rank_id"
   return "The reason the store prompt was shown to the user" if col_name == "prompt_reason"
+  return "Input mode of the user (e.g., touch, controller, keyboard)" if col_name == "input_mode"
   error "Unknown column #{col_name}"
 end
 
@@ -52,7 +53,8 @@ GROUPS = [
   ["st_region", "Region"],
   ["role", "Role"],
   ["net_asn_name", "ASN Name"],
-  ["st_version", "Version"]
+  ["st_version", "Version"],
+  ["st_input_mode", "Input Mode"]
 ]
 
 def gen_table_desc(base_name, full_name, base_desc)
