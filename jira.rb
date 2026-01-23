@@ -137,13 +137,13 @@ module Jira
             pp Jira.get "issue/createmeta"
         end
 
-        def create_multi(issues, parent, board_id)
+        def create_multi(issues, parent, board_id, assignee: Jira::AUSTIN_ACC_ID)
             updates = []
             issues.each do |issue|
                 update = {
                     fields: {
                         reporter: {id: Jira::AUSTIN_ACC_ID},
-                        assignee: {id: Jira::AUSTIN_ACC_ID},
+                        assignee: {id: assignee},
                         summary: issue[:parent],
                         issuetype: {id: Jira::CC::SUB_TASK_ISSUE_TYPE},
                         project: {id: Jira::CC::PROJECT_ID},
@@ -184,7 +184,7 @@ module Jira
             end
         end
 
-        def create(epic, summary, type: :task)
+        def create(epic, summary, type: :task, assignee: AUSTIN_ACC_ID)
           type_id = case type
                     when :task
                       Jira::CC::TASK_ISSUE_TYPE
@@ -198,7 +198,7 @@ module Jira
             data = {
                 fields: {
                   reporter: {id: Jira::AUSTIN_ACC_ID},
-                  assignee: {id: Jira::AUSTIN_ACC_ID},
+                  assignee: {id: assignee},
                   summary: summary,
                   issuetype: {id: type_id},
                   project: {id: Jira::CC::PROJECT_ID},
