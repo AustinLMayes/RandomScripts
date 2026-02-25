@@ -3,6 +3,7 @@
 
 require 'net/http'
 require 'uri'
+require 'common/logging'
 require 'openssl'
 require 'timeout'
 require 'fileutils'
@@ -13,29 +14,15 @@ require 'optparse'
 # ----------------------------
 URL_BASE     = ENV.fetch('EC_M3U8_BASE', 'https://d1l0mq8050ivkk.cloudfront.net/out/v1/e6cd690f157845f6a2f922e488ab6107/index')
 OUT_DIR      = ENV.fetch('EC_OUT_DIR',   '/Users/austinmayes/Desktop/EC_Live')
-SEGMENTS_S   = (ENV['EC_SEGMENTS'] || '1-4') # e.g. "1-4" or "1,3"
 FFSEG_SEC    = (ENV['EC_SEGMENT_SECONDS'] || '3600').to_i
 UA           = ENV.fetch('EC_UA', 'ec-live-checker/cron (+ffmpeg)')
 START_GAP_MS = (ENV['EC_START_GAP_MS'] || '400').to_i
-FFMPEG_BIN   = ENV.fetch('FFMPEG_BIN', '/opt/homebrew/bin/ffmpeg') # set absolute path for cron
 
 FileUtils.mkdir_p(OUT_DIR)
 
 # ----------------------------
 # Helpers
 # ----------------------------
-def seg_list(spec)
-  return (1..4).to_a if spec.nil? || spec.strip.empty?
-  spec.split(',').flat_map { |t|
-    if t.include?('-')
-      a, b = t.split('-', 2).map!(&:to_i)
-      (a..b).to_a
-    else
-      [t.to_i]
-    end
-  }.uniq.sort
-end
-
 def playlist_url(segment)
   "#{URL_BASE}_#{segment}.m3u8"
 end
@@ -127,7 +114,7 @@ def start_recording(segment, loglevel: 'info')
   log_path = File.join(OUT_DIR, "segment#{segment}.log")
 
   cmd = [
-    FFMPEG_BIN,
+    "ffmpeg",
     '-loglevel', loglevel, '-hide_banner',
     # robust input params; harmless if CDN is perfect
     '-user_agent', UA,
@@ -164,90 +151,67 @@ def start_recording(segment, loglevel: 'info')
   pid
 end
 
-def wait_group_exit(pgid, timeout_s:, label:)
-  deadline   = Time.now + timeout_s
-  last_print = 0
-  loop do
-    return :exited unless group_alive?(pgid)
-    now = Time.now.to_i
-    if now != last_print
-      puts "[#{label}] pgid=#{pgid} still running…"
-      last_print = now
-    end
-    return :timeout if Time.now >= deadline
-    sleep 0.5
-  end
-end
+info "EC Live Checker started. Waiting for commands…"
 
-def deliver(sig, pgid)
-  Process.kill(sig, -pgid)
-  puts " sent #{sig} to process group #{pgid}"
-  true
-rescue Errno::ESRCH
-  puts " group #{pgid} not found"
-  false
-rescue Errno::EPERM
-  puts " no permission to signal group #{pgid} (#{sig})"
-  false
-end
+rec_thread = nil
 
-def sh_kill(sig, pgid)
-  system('/bin/kill', "-#{sig}", '--', "-#{pgid}")
-  ok = $?.exitstatus == 0
-  puts " fallback /bin/kill -#{sig} -#{pgid} => #{ok ? 'ok' : 'failed'}"
-  ok
-end
+loop do
+  print "> "
+  input = gets
+  break if input.nil? # EOF
 
-def stop_recording(segment)
-  pgid = load_pgid(segment)
-  unless pgid
-    puts "No recording PID/PGID for segment #{segment}"
-    return
-  end
-
-  leader_pid = pgid
-  cmdline = `ps -o command= -p #{leader_pid}`.strip rescue 'n/a'
-  puts "Stopping segment #{segment} (pgid #{pgid}, leader #{leader_pid}) #{cmdline == '' ? '' : "(#{cmdline})"}"
-
-  [[:INT, 45], [:TERM, 8], [:KILL, 2]].each do |sig, wait_s|
-    delivered = deliver(sig, pgid) || sh_kill(sig, pgid)
-    status    = wait_group_exit(pgid, timeout_s: wait_s, label: sig)
-    break if status == :exited || !delivered
-  end
-
-  clear_pgid(segment)
-end
-
-# ----------------------------
-# CLI
-# ----------------------------
-opts = { action: nil, segments: seg_list(SEGMENTS_S), force: false }
-
-OptionParser.new do |o|
-  o.banner = "Usage: #{File.basename($PROGRAM_NAME)} [start|check|stop] [--segments 1-4|1,3] [--force]"
-  o.on('--segments S', 'Segments (e.g. 1-4 or 1,3)') { |s| opts[:segments] = seg_list(s) }
-  o.on('--force', 'Skip HLS validation and try anyway') { opts[:force] = true }
-end.parse!
-
-opts[:action] = ARGV.shift
-abort "Action required: start | check | stop" unless %w[start check stop].include?(opts[:action])
-
-case opts[:action]
-when 'check', 'start'
-  opts[:segments].each_with_index do |seg, idx|
-    if live?(seg, force: opts[:force])
-      if recording?(seg)
-        puts "Already recording segment #{seg}"
-      elsif opts[:action] == 'start'
-        start_recording(seg)
+  cmd = input.strip.downcase
+  case cmd
+  when "record"
+    # start record thread
+    info "Starting recording thread"
+    rec_thread&.kill
+    rec_thread = Thread.new do
+      loop do
+        (1..4).each do |segment|
+          info "Checking segment #{segment}…"
+          if recording?(segment)
+            info "Segment #{segment} is currently recording."
+          elsif live?(segment)
+            start_recording(segment)
+          else
+            info "Segment #{segment} is not live."
+          end
+        end
+        sleep 60
       end
-    else
-      puts "Not recording segment #{seg}" if opts[:action] == 'check'
     end
-    sleep(START_GAP_MS / 1000.0) if opts[:action] == 'start' && idx < opts[:segments].length - 1
-  end
-when 'stop'
-  opts[:segments].each do |seg|
-    recording?(seg) ? stop_recording(seg) : puts("No recorder running for segment #{seg}")
+  when "stop"
+    info "Stopping recording thread"
+    rec_thread&.kill
+    rec_thread = nil
+    (1..4).each do |segment|
+      if recording?(segment)
+        pgid = load_pgid(segment)
+        if pgid
+          info "Stopping recording for segment #{segment} (pgid #{pgid})"
+          Process.kill('TERM', -pgid) rescue nil
+          clear_pgid(segment)
+        else
+          info "No PID found for segment #{segment}, skipping stop"
+        end
+      else
+        info "Segment #{segment} is not recording."
+      end
+    end
+  when "check"
+    (1..4).each do |segment|
+      if live?(segment, force: true)
+        info "Segment #{segment} is LIVE (forced check)"
+      else
+        info "Segment #{segment} is not live (forced check)"
+      end
+    end
+  when "exit", "quit"
+    info "Exiting EC Live Checker"
+    break
+  else
+    puts "Unknown command: #{cmd}"
+    puts "Available commands: record, stop, check, exit"
   end
 end
