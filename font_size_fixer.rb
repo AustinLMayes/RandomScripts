@@ -2,7 +2,7 @@ require 'yaml'
 
 IN = ARGV[0]
 raise "Please provide an input YAML file!" unless IN.is_a? String
-raise "Input file #{IN} does not exist!" unless File.exists? IN
+raise "Input file #{IN} does not exist!" unless File.exist? IN
 
 data = YAML.load_file(IN)
 
